@@ -1,0 +1,586 @@
+// Autonomous Website Tester – database schema
+// Enum values must stay in sync with packages/shared/src/enums.ts (enforced by src/schema-sync.test.ts).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ───────────────────────────── Enums ─────────────────────────────
+
+enum UserRole {
+  ADMIN
+  TESTER
+  VIEWER
+}
+
+enum EnvironmentType {
+  PRODUCTION
+  STAGING
+  TEST
+  LOCAL
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  AWAITING_APPROVAL
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum DeviceClass {
+  DESKTOP
+  TABLET
+  MOBILE
+}
+
+enum TestModule {
+  UI_LAYOUT
+  RESPONSIVE
+  IMAGE
+  BUTTON
+  NAVIGATION
+  FORM
+  PASSWORD
+  FUNCTIONAL
+  ACCESSIBILITY
+  CONSOLE_NETWORK
+}
+
+enum TestStatus {
+  PASSED
+  FAILED
+  FLAKY
+  SKIPPED
+  ERROR
+  BLOCKED
+}
+
+enum Severity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+  INFO
+}
+
+/// CONFIRMED = reproducible deterministic failure with evidence; FLAKY = failed then passed on retry;
+/// NEEDS_REVIEW = AI observation without deterministic corroboration.
+enum FindingClassification {
+  CONFIRMED
+  FLAKY
+  NEEDS_REVIEW
+}
+
+enum IssueStatus {
+  OPEN
+  ACKNOWLEDGED
+  FALSE_POSITIVE
+  FIXED
+  WONT_FIX
+}
+
+enum ElementRisk {
+  SAFE
+  MUTATING
+  DESTRUCTIVE
+  UNKNOWN
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+enum ArtifactType {
+  PAGE_SCREENSHOT
+  ELEMENT_SCREENSHOT
+  DOM_SNAPSHOT
+  HAR
+  CONSOLE_LOG
+  NETWORK_LOG
+  TRACE
+  VIDEO
+}
+
+enum DiscoverySource {
+  SEED
+  SITEMAP
+  LINK
+  NAV_MENU
+  DROPDOWN
+  SPA_ROUTE
+  BUTTON_NAVIGATION
+  REDIRECT
+}
+
+enum ReportFormat {
+  PDF
+  XLSX
+}
+
+enum EventLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+}
+
+// ───────────────────────────── Identity ─────────────────────────────
+
+model User {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  name         String
+  role         UserRole  @default(TESTER)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastLoginAt  DateTime? @map("last_login_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  projects  Project[]
+  runs      TestRun[]
+  approvals Approval[]
+  reports   Report[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+// ───────────────────────────── Projects & secrets ─────────────────────────────
+
+model Project {
+  id                       String          @id @default(uuid()) @db.Uuid
+  ownerId                  String          @map("owner_id") @db.Uuid
+  name                     String
+  baseUrl                  String          @map("base_url")
+  /// Authorized-domain allow-list, e.g. {"example.com","*.example.com"}. The engine never leaves it.
+  allowedDomains           String[]        @map("allowed_domains")
+  excludedPaths            String[]        @default([]) @map("excluded_paths")
+  environment              EnvironmentType @default(STAGING)
+  maxPages                 Int             @default(200) @map("max_pages")
+  maxDepth                 Int             @default(6) @map("max_depth")
+  /// Requests per second ceiling toward the target site.
+  rateLimitRps             Int             @default(4) @map("rate_limit_rps")
+  /// Viewport profiles (desktop/tablet/mobile). Null = DEFAULT_VIEWPORTS.
+  viewports                Json?
+  browsers                 String[]        @default(["chromium"])
+  /// Who confirmed authorization to test this site, and when. Runs are refused without it.
+  authorizationConfirmedAt DateTime?       @map("authorization_confirmed_at")
+  authorizationConfirmedBy String?         @map("authorization_confirmed_by") @db.Uuid
+  createdAt                DateTime        @default(now()) @map("created_at")
+  updatedAt                DateTime        @updatedAt @map("updated_at")
+
+  owner       User         @relation(fields: [ownerId], references: [id])
+  credentials Credential[]
+  runs        TestRun[]
+  issues      Issue[]
+  aiSettings  AiSettings?
+
+  @@index([ownerId])
+  @@map("projects")
+}
+
+/// Test login. One per site role (e.g. "admin", "customer") to enable role-based page discovery.
+/// Username and password are AES-256-GCM encrypted; plaintext never stored or returned by the API.
+model Credential {
+  id          String    @id @default(uuid()) @db.Uuid
+  projectId   String    @map("project_id") @db.Uuid
+  label       String
+  roleName    String    @map("role_name")
+  usernameEnc Bytes     @map("username_enc")
+  usernameIv  Bytes     @map("username_iv")
+  usernameTag Bytes     @map("username_tag")
+  passwordEnc Bytes     @map("password_enc")
+  passwordIv  Bytes     @map("password_iv")
+  passwordTag Bytes     @map("password_tag")
+  keyVersion  Int       @map("key_version")
+  loginUrl    String?   @map("login_url")
+  /// Optional selector hints: { usernameSelector, passwordSelector, submitSelector, successIndicator }
+  loginConfig Json?     @map("login_config")
+  lastUsedAt  DateTime? @map("last_used_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  project    Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  pageVisits PageAccess[]
+
+  @@unique([projectId, roleName])
+  @@map("credentials")
+}
+
+/// Per-project AI provider/model configuration. Nothing model-specific is hardcoded.
+model AiSettings {
+  id                  String   @id @default(uuid()) @db.Uuid
+  projectId           String   @unique @map("project_id") @db.Uuid
+  provider            String
+  baseUrl             String?  @map("base_url")
+  textModel           String?  @map("text_model")
+  visionModel         String?  @map("vision_model")
+  fastModel           String?  @map("fast_model")
+  apiKeyEnc           Bytes?   @map("api_key_enc")
+  apiKeyIv            Bytes?   @map("api_key_iv")
+  apiKeyTag           Bytes?   @map("api_key_tag")
+  keyVersion          Int?     @map("key_version")
+  maxTokensPerRun     Int      @default(500000) @map("max_tokens_per_run")
+  visionReviewEnabled Boolean  @default(true) @map("vision_review_enabled")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@map("ai_settings")
+}
+
+// ───────────────────────────── Runs & discovery ─────────────────────────────
+
+model TestRun {
+  id              String    @id @default(uuid()) @db.Uuid
+  projectId       String    @map("project_id") @db.Uuid
+  startedById     String    @map("started_by") @db.Uuid
+  status          RunStatus @default(QUEUED)
+  /// Frozen copy of project + AI config at start time, for reproducibility.
+  configSnapshot  Json      @map("config_snapshot")
+  pagesDiscovered Int       @default(0) @map("pages_discovered")
+  testsTotal      Int       @default(0) @map("tests_total")
+  testsPassed     Int       @default(0) @map("tests_passed")
+  testsFailed     Int       @default(0) @map("tests_failed")
+  testsFlaky      Int       @default(0) @map("tests_flaky")
+  confirmedIssues Int       @default(0) @map("confirmed_issues")
+  reviewItems     Int       @default(0) @map("review_items")
+  aiTokensUsed    Int       @default(0) @map("ai_tokens_used")
+  errorMessage    String?   @map("error_message")
+  queuedAt        DateTime  @default(now()) @map("queued_at")
+  startedAt       DateTime? @map("started_at")
+  finishedAt      DateTime? @map("finished_at")
+
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  startedBy User       @relation(fields: [startedById], references: [id])
+  pages     Page[]
+  testCases TestCase[]
+  issues    Issue[]
+  artifacts Artifact[]
+  approvals Approval[]
+  reports   Report[]
+  events    RunEvent[]
+  jobs      Job[]
+
+  @@index([projectId, queuedAt(sort: Desc)])
+  @@index([status])
+  @@map("test_runs")
+}
+
+model Page {
+  id               String          @id @default(uuid()) @db.Uuid
+  runId            String          @map("run_id") @db.Uuid
+  url              String
+  normalizedUrl    String          @map("normalized_url")
+  title            String?
+  pageName         String?         @map("page_name")
+  statusCode       Int?            @map("status_code")
+  depth            Int             @default(0)
+  discoveredFromId String?         @map("discovered_from_id") @db.Uuid
+  discoverySource  DiscoverySource @default(LINK) @map("discovery_source")
+  /// True if the page is reachable only while logged in.
+  requiresAuth     Boolean         @default(false) @map("requires_auth")
+  isSpaRoute       Boolean         @default(false) @map("is_spa_route")
+  loadTimeMs       Int?            @map("load_time_ms")
+  domHash          String?         @map("dom_hash")
+  discoveredAt     DateTime        @default(now()) @map("discovered_at")
+
+  run            TestRun      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  discoveredFrom Page?        @relation("PageDiscovery", fields: [discoveredFromId], references: [id])
+  children       Page[]       @relation("PageDiscovery")
+  access         PageAccess[]
+  elements       Element[]
+  testCases      TestCase[]
+  issues         Issue[]
+  artifacts      Artifact[]
+  approvals      Approval[]
+
+  @@unique([runId, normalizedUrl])
+  @@index([runId])
+  @@map("pages")
+}
+
+/// Which role (credential) or anonymous visitor could reach a page — drives role-based page mapping.
+model PageAccess {
+  id           String  @id @default(uuid()) @db.Uuid
+  pageId       String  @map("page_id") @db.Uuid
+  /// Null = anonymous / public visitor.
+  credentialId String? @map("credential_id") @db.Uuid
+  accessible   Boolean
+  statusCode   Int?    @map("status_code")
+  redirectedTo String? @map("redirected_to")
+
+  page       Page        @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  credential Credential? @relation(fields: [credentialId], references: [id], onDelete: SetNull)
+
+  @@unique([pageId, credentialId])
+  @@map("page_access")
+}
+
+model Element {
+  id             String      @id @default(uuid()) @db.Uuid
+  pageId         String      @map("page_id") @db.Uuid
+  elementType    String      @map("element_type")
+  selector       String
+  role           String?
+  accessibleName String?     @map("accessible_name")
+  text           String?
+  attributes     Json?
+  boundingBox    Json?       @map("bounding_box")
+  risk           ElementRisk @default(UNKNOWN)
+  riskReason     String?     @map("risk_reason")
+
+  page      Page       @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  testCases TestCase[]
+  issues    Issue[]
+  approvals Approval[]
+
+  @@index([pageId])
+  @@map("elements")
+}
+
+// ───────────────────────────── Tests, issues, evidence ─────────────────────────────
+
+model TestCase {
+  id             String       @id @default(uuid()) @db.Uuid
+  runId          String       @map("run_id") @db.Uuid
+  pageId         String?      @map("page_id") @db.Uuid
+  elementId      String?      @map("element_id") @db.Uuid
+  module         TestModule
+  name           String
+  viewportId     String?      @map("viewport_id")
+  deviceClass    DeviceClass? @map("device_class")
+  browser        String       @default("chromium")
+  credentialRole String?      @map("credential_role")
+  /// Masked input values used by the test.
+  inputData      Json?        @map("input_data")
+  status         TestStatus
+  attempts       Int          @default(1)
+  /// Raw measured signals (bounding boxes, mutations, network calls…) that justify the status.
+  observations   Json?
+  errorMessage   String?      @map("error_message")
+  durationMs     Int?         @map("duration_ms")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  run       TestRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  page      Page?      @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  element   Element?   @relation(fields: [elementId], references: [id], onDelete: SetNull)
+  issues    Issue[]
+  artifacts Artifact[]
+
+  @@index([runId, module, status])
+  @@map("test_cases")
+}
+
+model Issue {
+  id               String                @id @default(uuid()) @db.Uuid
+  /// Human-readable unique ID, e.g. "AWT-000123".
+  issueKey         String                @unique @map("issue_key")
+  issueNumber      Int                   @unique @default(autoincrement()) @map("issue_number")
+  runId            String                @map("run_id") @db.Uuid
+  projectId        String                @map("project_id") @db.Uuid
+  pageId           String?               @map("page_id") @db.Uuid
+  testCaseId       String?               @map("test_case_id") @db.Uuid
+  elementId        String?               @map("element_id") @db.Uuid
+  classification   FindingClassification
+  module           TestModule
+  category         String
+  title            String
+  description      String
+  severity         Severity
+  expectedResult   String                @map("expected_result")
+  actualResult     String                @map("actual_result")
+  stepsToReproduce Json                  @map("steps_to_reproduce")
+  pageName         String?               @map("page_name")
+  pageUrl          String                @map("page_url")
+  viewportId       String?               @map("viewport_id")
+  deviceClass      DeviceClass?          @map("device_class")
+  browser          String?
+  /// Stable hash used to de-duplicate across runs.
+  fingerprint      String
+  /// Present only for AI-originated observations.
+  aiModel          String?               @map("ai_model")
+  aiConfidence     Float?                @map("ai_confidence")
+  status           IssueStatus           @default(OPEN)
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+
+  run       TestRun    @relation(fields: [runId], references: [id], onDelete: Cascade)
+  project   Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  page      Page?      @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  testCase  TestCase?  @relation(fields: [testCaseId], references: [id], onDelete: SetNull)
+  element   Element?   @relation(fields: [elementId], references: [id], onDelete: SetNull)
+  artifacts Artifact[]
+
+  @@index([runId, classification, severity])
+  @@index([projectId, fingerprint])
+  @@map("issues")
+}
+
+model Artifact {
+  id          String       @id @default(uuid()) @db.Uuid
+  runId       String       @map("run_id") @db.Uuid
+  pageId      String?      @map("page_id") @db.Uuid
+  testCaseId  String?      @map("test_case_id") @db.Uuid
+  issueId     String?      @map("issue_id") @db.Uuid
+  type        ArtifactType
+  storagePath String       @map("storage_path")
+  mimeType    String       @map("mime_type")
+  sizeBytes   Int          @map("size_bytes")
+  sha256      String
+  /// e.g. highlighted bounding box, viewport, masked selectors applied.
+  metadata    Json?
+  createdAt   DateTime     @default(now()) @map("created_at")
+
+  run      TestRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+  page     Page?     @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  testCase TestCase? @relation(fields: [testCaseId], references: [id], onDelete: SetNull)
+  issue    Issue?    @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  @@index([runId])
+  @@index([issueId])
+  @@map("artifacts")
+}
+
+// ───────────────────────────── Safety, reports, audit ─────────────────────────────
+
+model Approval {
+  id                String         @id @default(uuid()) @db.Uuid
+  runId             String         @map("run_id") @db.Uuid
+  pageId            String?        @map("page_id") @db.Uuid
+  elementId         String?        @map("element_id") @db.Uuid
+  actionDescription String         @map("action_description")
+  riskReason        String         @map("risk_reason")
+  risk              ElementRisk
+  /// Masked preview of what would be sent (form values etc.).
+  payloadPreview    Json?          @map("payload_preview")
+  status            ApprovalStatus @default(PENDING)
+  decidedById       String?        @map("decided_by") @db.Uuid
+  decidedAt         DateTime?      @map("decided_at")
+  expiresAt         DateTime?      @map("expires_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+
+  run       TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+  page      Page?    @relation(fields: [pageId], references: [id], onDelete: SetNull)
+  element   Element? @relation(fields: [elementId], references: [id], onDelete: SetNull)
+  decidedBy User?    @relation(fields: [decidedById], references: [id])
+
+  @@index([runId, status])
+  @@map("approvals")
+}
+
+model Report {
+  id            String       @id @default(uuid()) @db.Uuid
+  runId         String       @map("run_id") @db.Uuid
+  format        ReportFormat
+  storagePath   String       @map("storage_path")
+  sizeBytes     Int          @map("size_bytes")
+  generatedById String       @map("generated_by") @db.Uuid
+  createdAt     DateTime     @default(now()) @map("created_at")
+
+  run         TestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  generatedBy User    @relation(fields: [generatedById], references: [id])
+
+  @@map("reports")
+}
+
+model RunEvent {
+  id        BigInt     @id @default(autoincrement())
+  runId     String     @map("run_id") @db.Uuid
+  level     EventLevel @default(INFO)
+  type      String
+  message   String
+  data      Json?
+  createdAt DateTime   @default(now()) @map("created_at")
+
+  run TestRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId, id])
+  @@map("run_events")
+}
+
+model AuditLog {
+  id        BigInt   @id @default(autoincrement())
+  userId    String?  @map("user_id") @db.Uuid
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  ip        String?
+  meta      Json?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entity, entityId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// ── Background job queue (PostgreSQL-backed; no Redis) ─────────────────────────
+// Workers claim jobs with SELECT … FOR UPDATE SKIP LOCKED, so any number of workers can poll safely.
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+model Job {
+  id          String    @id @default(uuid()) @db.Uuid
+  /// Handler name, e.g. "test-run".
+  type        String
+  payload     Json      @default("{}")
+  status      JobStatus @default(PENDING)
+  /// Higher runs first.
+  priority    Int       @default(0)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(3) @map("max_attempts")
+  /// Not claimable before this time (used for retry backoff).
+  runAt       DateTime  @default(now()) @map("run_at")
+  /// At most one PENDING/RUNNING job may exist per key (enforced in a locked transaction).
+  dedupeKey   String?   @map("dedupe_key")
+  lockedBy    String?   @map("locked_by")
+  lockedAt    DateTime? @map("locked_at")
+  heartbeatAt DateTime? @map("heartbeat_at")
+  lastError   String?   @map("last_error")
+  result      Json?
+  runId       String?   @map("run_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  startedAt   DateTime? @map("started_at")
+  finishedAt  DateTime? @map("finished_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  run TestRun? @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([status, runAt, priority])
+  @@index([dedupeKey, status])
+  @@index([runId])
+  @@map("jobs")
+}
+
+/// One row per running worker process; refreshed every few seconds so the API knows jobs will be picked up.
+model QueueWorker {
+  id          String   @id
+  hostname    String
+  pid         Int
+  concurrency Int
+  jobTypes    String[] @map("job_types")
+  startedAt   DateTime @default(now()) @map("started_at")
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at")
+
+  @@map("queue_workers")
+}

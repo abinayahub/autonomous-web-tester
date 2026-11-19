@@ -1,0 +1,44 @@
+{
+  "name": "autonomous-web-tester",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AI-powered autonomous website testing platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "test-fixtures"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "build": "npm run build -w @awt/shared -w @awt/crypto -w @awt/db -w @awt/engine && npm run build -w @awt/api -w @awt/worker -w @awt/web",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "dev:api": "npm run dev -w @awt/api",
+    "dev:worker": "npm run dev -w @awt/worker",
+    "dev:web": "npm run dev -w @awt/web",
+    "dev:fixture": "npm run dev -w @awt/test-fixtures",
+    "dev": "concurrently --restart-tries -1 --restart-after 3000 -n api,worker,web,fixture -c blue,magenta,green,yellow \"npm:dev:api\" \"npm:dev:worker\" \"npm:dev:web\" \"npm:dev:fixture\"",
+    "db:generate": "npm run generate -w @awt/db",
+    "db:migrate": "npm run migrate:dev -w @awt/db",
+    "db:deploy": "npm run migrate:deploy -w @awt/db",
+    "db:studio": "npm run studio -w @awt/db",
+    "db:status": "npm run status -w @awt/db",
+    "services:up": "docker compose up -d",
+    "services:down": "docker compose down",
+    "doctor": "node scripts/doctor.mjs",
+    "gen:key": "node scripts/gen-key.mjs",
+    "db:setup-native": "node scripts/setup-native-db.mjs"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.5"
+  },
+  "allowScripts": {
+    "@prisma/client@6.19.3": true,
+    "@prisma/engines@6.19.3": true,
+    "esbuild@0.28.2": true,
+    "prisma@6.19.3": true,
+    "msgpackr-extract": false
+  }
+}

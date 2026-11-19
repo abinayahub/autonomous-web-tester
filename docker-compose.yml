@@ -1,0 +1,56 @@
+# Local infrastructure for development.
+# Usage: npm run services:up   (requires Docker Desktop)
+# If you run PostgreSQL / Redis natively instead, skip this file and point
+# DATABASE_URL / REDIS_URL in .env at your local instances.
+name: awt
+
+services:
+  postgres:
+    image: postgres:17.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: awt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-awt_dev_password}
+      POSTGRES_DB: awt
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"   # 5433 avoids clashing with a native Postgres on 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U awt -d awt"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-awt_dev_redis}"]
+    ports:
+      - "${REDIS_HOST_PORT:-6379}:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-awt_dev_redis}", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-awt_minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-awt_minio_secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - miniodata:/data
+    profiles: ["s3"]   # optional; local disk storage is the default
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

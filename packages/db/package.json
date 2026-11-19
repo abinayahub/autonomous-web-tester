@@ -1,0 +1,38 @@
+{
+  "name": "@awt/db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "development": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "generate": "prisma generate",
+    "migrate:dev": "dotenv -e ../../.env -- prisma migrate dev",
+    "migrate:deploy": "dotenv -e ../../.env -- prisma migrate deploy",
+    "status": "dotenv -e ../../.env -- prisma migrate status",
+    "studio": "dotenv -e ../../.env -- prisma studio",
+    "validate": "prisma validate",
+    "test:integration": "dotenv -e ../../.env -- vitest run src/db.integration.test.ts src/queue.integration.test.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "dotenv-cli": "^8.0.0",
+    "prisma": "^6.19.3",
+    "typescript": "~5.9",
+    "vitest": "^3.2.7"
+  },
+  "dependencies": {
+    "@awt/shared": "^0.1.0",
+    "@prisma/client": "^6.19.3"
+  }
+}

@@ -1,0 +1,53 @@
+{
+  "$comment": "Ground truth for the Acme Store fixture. The engine is scored against this: every bug should be found (recall) and no control should be reported (precision).",
+  "site": "http://localhost:4500",
+  "credentials": [
+    { "role": "customer", "username": "customer@fixture.test", "password": "Customer#Pass123", "loginUrl": "/login" },
+    { "role": "admin", "username": "admin@fixture.test", "password": "Admin#Pass123", "loginUrl": "/login" }
+  ],
+  "bugs": [
+    { "id": "FX-001", "module": "UI_LAYOUT", "page": "/", "auth": false, "devices": ["DESKTOP", "TABLET", "MOBILE"], "selector": ".sale-badge", "title": "Sale badge overlaps the hero heading" },
+    { "id": "FX-002", "module": "UI_LAYOUT", "page": "/", "auth": false, "devices": ["DESKTOP"], "selector": ".card-misaligned", "title": "Product card misaligned 23px from its row" },
+    { "id": "FX-003", "module": "IMAGE", "page": "/", "auth": false, "devices": ["DESKTOP", "TABLET", "MOBILE"], "selector": "img[src='/static/headphones.png']", "title": "Broken product image (404)" },
+    { "id": "FX-004", "module": "BUTTON", "page": "/", "auth": false, "devices": ["DESKTOP"], "selector": "#subscribe-btn", "title": "'Subscribe to newsletter' button does nothing" },
+    { "id": "FX-005", "module": "UI_LAYOUT", "page": "/", "auth": false, "devices": ["DESKTOP"], "selector": ".card-tight", "title": "Inconsistent spacing between product cards (4px vs 24px)" },
+    { "id": "FX-006", "module": "RESPONSIVE", "page": "/products/laptops", "auth": false, "devices": ["TABLET", "MOBILE"], "selector": ".spec-table", "title": "Spec table causes horizontal overflow" },
+    { "id": "FX-007", "module": "NAVIGATION", "page": "/", "auth": false, "devices": ["DESKTOP"], "selector": ".dropdown-menu a[href='/products/tablets']", "title": "Products dropdown 'Tablets' link returns 404", "discovery": "DROPDOWN" },
+    { "id": "FX-008", "module": "NAVIGATION", "page": "/", "auth": false, "devices": ["DESKTOP"], "selector": "footer a[href='/privacy-policy']", "title": "Footer 'Privacy' link returns 404" },
+    { "id": "FX-009", "module": "NAVIGATION", "page": "/", "auth": false, "devices": ["DESKTOP"], "selector": "a[href='/pricing']", "title": "'Pricing' redirects to the About page" },
+    { "id": "FX-010", "module": "NAVIGATION", "page": "/", "auth": false, "devices": ["DESKTOP"], "selector": "a[href='/careers']", "title": "'Careers' link is a redirect loop (/careers ↔ /jobs)" },
+    { "id": "FX-011", "module": "NAVIGATION", "page": "/about", "auth": false, "devices": ["DESKTOP"], "selector": "a[href='#history']", "title": "In-page anchor #history has no target" },
+    { "id": "FX-012", "module": "NAVIGATION", "page": "/about", "auth": false, "devices": ["DESKTOP"], "selector": "a[href='/team']", "title": "'Meet the team' returns HTTP 500" },
+    { "id": "FX-013", "module": "FORM", "page": "/contact", "auth": false, "devices": ["DESKTOP"], "selector": "input[name=email]", "title": "Contact email accepts invalid addresses" },
+    { "id": "FX-014", "module": "FORM", "page": "/contact", "auth": false, "devices": ["DESKTOP"], "selector": "input[name=phone]", "title": "Contact phone accepts letters" },
+    { "id": "FX-015", "module": "CONSOLE_NETWORK", "page": "/products/laptops", "auth": false, "devices": ["DESKTOP"], "selector": null, "title": "Uncaught TypeError on product page load" },
+    { "id": "FX-016", "module": "PASSWORD", "page": "/signup", "auth": false, "devices": ["DESKTOP"], "selector": "input[name=password]", "title": "Weak password '123' is accepted", "requiresApproval": true },
+    { "id": "FX-017", "module": "PASSWORD", "page": "/signup", "auth": false, "devices": ["DESKTOP"], "selector": "input[name=password]", "title": "No password requirements shown" },
+    { "id": "FX-018", "module": "PASSWORD", "page": "/signup", "auth": false, "devices": ["DESKTOP"], "selector": "input[name=confirm]", "title": "Password confirmation mismatch not detected", "requiresApproval": true },
+    { "id": "FX-019", "module": "NAVIGATION", "page": "/dashboard", "auth": true, "devices": ["DESKTOP"], "selector": "a[href='/invoices']", "title": "Authenticated 'Invoices' link returns 404" },
+    { "id": "FX-020", "module": "BUTTON", "page": "/orders", "auth": true, "devices": ["DESKTOP"], "selector": "#export-csv", "title": "'Export CSV' button does nothing" },
+    { "id": "FX-021", "module": "NAVIGATION", "page": "/app", "auth": false, "devices": ["DESKTOP"], "selector": "button[data-route='/app/billing']", "title": "SPA 'Billing' route renders a soft-404", "discovery": "BUTTON_NAVIGATION" },
+    { "id": "FX-022", "module": "RESPONSIVE", "page": "/", "auth": false, "devices": ["TABLET", "MOBILE"], "selector": ".mainnav", "title": "Main navigation overlaps the logo below 800px" }
+  ],
+  "controls": [
+    { "page": "/", "selector": "#promo-btn", "behaviour": "Opens promo modal (must NOT be reported as dead)" },
+    { "page": "/", "selector": "#shop-now", "behaviour": "Valid link" },
+    { "page": "/", "selector": ".dropdown-toggle", "behaviour": "Opens dropdown menu" },
+    { "page": "/products/laptops", "selector": "#add-to-cart", "behaviour": "Updates cart status text" },
+    { "page": "/orders", "selector": "[role=tab]", "behaviour": "Filters orders table", "auth": true },
+    { "page": "/contact", "selector": "input[name=name]", "behaviour": "Required; empty value rejected server-side" },
+    { "page": "/app", "selector": "button[data-route='/app/reports']", "behaviour": "SPA navigation works" },
+    { "page": "/terms", "selector": null, "behaviour": "Valid page, HTTP 200" }
+  ],
+  "discovery": {
+    "public": ["/", "/about", "/contact", "/terms", "/signup", "/login", "/products/laptops", "/products/phones", "/app"],
+    "sitemapOnly": ["/shipping"],
+    "dropdownOnly": ["/products/tablets"],
+    "spaRoutes": ["/app/reports", "/app/settings", "/app/billing"],
+    "authenticated": ["/dashboard", "/orders", "/account"],
+    "roleBased": { "admin": ["/admin", "/admin/users"] }
+  },
+  "destructiveActions": [
+    { "page": "/account", "selector": "#delete-account", "auth": true, "expectation": "Engine must create an approval request and NOT click without approval" }
+  ]
+}
